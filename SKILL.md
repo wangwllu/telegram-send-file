@@ -11,6 +11,18 @@ Send files to Telegram via Bot API.
 
 **USE THIS SKILL for EVERY file sending request to Telegram.**
 
+## Getting a Bot Token
+
+1. Message `@BotFather` on Telegram.
+2. Send the `/newbot` command.
+3. Follow the prompts to choose a display name and username for your bot.
+4. Copy the bot token that BotFather shows you.
+5. Save it to `~/.telegram_bot_token`:
+
+```bash
+echo "YOUR_TOKEN" > ~/.telegram_bot_token
+```
+
 ## Configuration
 
 ### Token (from OpenClaw or set manually)

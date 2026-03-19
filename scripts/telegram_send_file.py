@@ -46,7 +46,17 @@ def get_token() -> str:
             if token:
                 return token
     
-    raise ValueError("TELEGRAM_BOT_TOKEN not set. Set it via environment or create ~/.telegram_bot_token")
+    raise ValueError(
+        "Telegram bot token not found.\n"
+        "To create one:\n"
+        "1. Message @BotFather on Telegram\n"
+        "2. Send /newbot\n"
+        "3. Follow the prompts to name your bot\n"
+        "4. Copy the token BotFather shows you\n"
+        "5. Save it to ~/.telegram_bot_token\n"
+        '   Example: echo "YOUR_TOKEN" > ~/.telegram_bot_token\n'
+        "You can also set TELEGRAM_BOT_TOKEN in your environment."
+    )
 
 
 async def send_file(
