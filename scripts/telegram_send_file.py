@@ -29,6 +29,8 @@ except ImportError:
 
 def get_token() -> str:
     """Get bot token from environment or config file."""
+    import json
+
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
     if token:
         return token
@@ -38,17 +40,33 @@ def get_token() -> str:
         Path.home() / ".config" / "telegram-send-file" / "config",
         Path.home() / ".telegram_bot_token",
         Path.home() / "telegram_token",
+        Path.home() / ".openclaw" / "openclaw.json",  # OpenClaw Telegram bot token
     ]
     
     for config_path in config_paths:
         if config_path.exists():
-            token = config_path.read_text().strip()
-            if token:
-                return token
+            if config_path.name == "openclaw.json":
+                # Special handling for OpenClaw config
+                try:
+                    with open(config_path) as f:
+                        data = json.load(f)
+                    token = data.get("channels", {}).get("telegram", {}).get("botToken")
+                    if token:
+                        return token
+                except Exception:
+                    pass
+            else:
+                token = config_path.read_text().strip()
+                if token:
+                    return token
     
     raise ValueError(
         "Telegram bot token not found.\n"
-        "To create one:\n"
+        "\n"
+        "If you are using OpenClaw with Telegram, the token is auto-detected\n"
+        "from ~/.openclaw/openclaw.json → channels.telegram.botToken\n"
+        "\n"
+        "To create a new bot token:\n"
         "1. Message @BotFather on Telegram\n"
         "2. Send /newbot\n"
         "3. Follow the prompts to name your bot\n"

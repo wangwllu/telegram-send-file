@@ -13,6 +13,14 @@ Send files to Telegram via Bot API.
 
 ## Getting a Bot Token
 
+### If OpenClaw is already connected to Telegram
+Your bot token is already configured! Find it at:
+```
+~/.openclaw/openclaw.json → channels.telegram.botToken
+```
+The skill will auto-detect it from there — no extra setup needed.
+
+### Manual setup (alternative)
 1. Message `@BotFather` on Telegram.
 2. Send the `/newbot` command.
 3. Follow the prompts to choose a display name and username for your bot.
@@ -25,10 +33,11 @@ echo "YOUR_TOKEN" > ~/.telegram_bot_token
 
 ## Configuration
 
-### Token (from OpenClaw or set manually)
-```bash
-echo "YOUR_TOKEN" > ~/.telegram_bot_token
-export TELEGRAM_BOT_TOKEN="YOUR_TOKEN"
+### Token (auto-detected, no setup needed for OpenClaw users)
+The script auto-detects the token from (in order of priority):
+1. `TELEGRAM_BOT_TOKEN` environment variable
+2. `~/.telegram_bot_token` file
+3. `~/.openclaw/openclaw.json → channels.telegram.botToken` ← **OpenClaw 用户无需配置！**
 ```
 
 ### Chat ID
