@@ -27,6 +27,38 @@ except ImportError:
     sys.exit(1)
 
 
+def get_default_target() -> tuple:
+    """
+    Get default chat_id and topic_id from environment or OpenClaw session state.
+    Returns (chat_id, topic_id) - either may be None if not set.
+    """
+    import json
+    
+    chat_id = os.environ.get("TELEGRAM_DEFAULT_CHAT_ID")
+    topic_id = os.environ.get("TELEGRAM_DEFAULT_TOPIC_ID")
+    
+    if topic_id is not None:
+        topic_id = int(topic_id)
+    
+    # Try to read from OpenClaw session state if not set
+    if chat_id is None:
+        try:
+            session_state_path = Path.home() / ".openclaw" / "session-state.json"
+            if session_state_path.exists():
+                with open(session_state_path) as f:
+                    state = json.load(f)
+                inbound = state.get("inbound_meta", {})
+                chat_id = inbound.get("chat_id")
+                # Extract numeric part from "telegram:-1003848180061" format
+                if chat_id and chat_id.startswith("telegram:"):
+                    chat_id = chat_id.replace("telegram:", "")
+                topic_id = topic_id or inbound.get("topic_id")
+        except Exception:
+            pass
+    
+    return chat_id, topic_id
+
+
 def get_token() -> str:
     """Get bot token from environment or config file."""
     import json
@@ -85,6 +117,7 @@ async def send_file(
     file_id: Optional[str] = None,
     caption: Optional[str] = None,
     parse_mode: Optional[str] = None,
+    message_thread_id: Optional[int] = None,
 ) -> dict:
     """
     Send a file to Telegram (async).
@@ -110,6 +143,7 @@ async def send_file(
                     photo=f,
                     caption=caption,
                     parse_mode=parse_mode,
+                    message_thread_id=message_thread_id,
                 )).to_dict()
             elif file_path.lower().endswith(('.mp4', '.avi', '.mov', '.mkv', '.webm')):
                 return (await bot.send_video(
@@ -117,6 +151,7 @@ async def send_file(
                     video=f,
                     caption=caption,
                     parse_mode=parse_mode,
+                    message_thread_id=message_thread_id,
                 )).to_dict()
             elif file_path.lower().endswith(('.mp3', '.wav', '.ogg', '.m4a', '.flac')):
                 return (await bot.send_audio(
@@ -124,6 +159,7 @@ async def send_file(
                     audio=f,
                     caption=caption,
                     parse_mode=parse_mode,
+                    message_thread_id=message_thread_id,
                 )).to_dict()
             elif file_path.lower().endswith(('.zip', '.rar', '.7z', '.tar', '.gz')):
                 return (await bot.send_document(
@@ -131,6 +167,7 @@ async def send_file(
                     document=f,
                     caption=caption,
                     parse_mode=parse_mode,
+                    message_thread_id=message_thread_id,
                 )).to_dict()
             else:
                 # Default to document (PDF, DOC, TXT, etc.)
@@ -139,6 +176,7 @@ async def send_file(
                     document=f,
                     caption=caption,
                     parse_mode=parse_mode,
+                    message_thread_id=message_thread_id,
                 )).to_dict()
     
     elif file_url:
@@ -148,6 +186,7 @@ async def send_file(
             document=file_url,
             caption=caption,
             parse_mode=parse_mode,
+            message_thread_id=message_thread_id,
         )).to_dict()
     
     elif file_id:
@@ -157,6 +196,7 @@ async def send_file(
             document=file_id,
             caption=caption,
             parse_mode=parse_mode,
+            message_thread_id=message_thread_id,
         )).to_dict()
     
     else:
@@ -225,7 +265,7 @@ Examples:
 """
     )
     
-    parser.add_argument("--chat-id", required=True, help="Telegram chat ID")
+    parser.add_argument("--chat-id", help="Telegram chat ID (auto-detected from session if not set)")
     parser.add_argument("--file", dest="file_path", help="Local file path")
     parser.add_argument("--url", help="URL to send")
     parser.add_argument("--file-id", dest="file_id", help="Telegram file ID to forward")
@@ -233,15 +273,24 @@ Examples:
     parser.add_argument("--caption", help="File caption")
     parser.add_argument("--parse-mode", dest="parse_mode", choices=["Markdown", "HTML"], help="Caption parse mode")
     parser.add_argument("--token", help="Telegram bot token (or set TELEGRAM_BOT_TOKEN)")
+    parser.add_argument("--topic-id", dest="topic_id", type=int, help="Topic/thread ID for forum chats (auto-detected from session if not set)")
     
     args = parser.parse_args()
+    
+    # Auto-detect chat_id and topic_id from environment or session
+    default_chat_id, default_topic_id = get_default_target()
     
     # Get token
     token = args.token or get_token()
     bot = Bot(token=token)
     
-    # Determine chat_id
-    chat_id = args.chat_id
+    # Determine chat_id (CLI arg > environment > session default)
+    chat_id = args.chat_id or default_chat_id
+    if chat_id is None:
+        raise ValueError("No chat_id provided. Use --chat-id or set TELEGRAM_DEFAULT_CHAT_ID")
+    
+    # Determine topic_id (CLI arg > environment > session default)
+    topic_id = args.topic_id or default_topic_id
     
     # Batch mode
     if args.files:
@@ -266,6 +315,7 @@ Examples:
             file_id=args.file_id,
             caption=args.caption,
             parse_mode=args.parse_mode,
+            message_thread_id=topic_id,
         ))
         print(f"✓ File sent successfully")
         print(f"  Message ID: {result.get('message_id')}")
