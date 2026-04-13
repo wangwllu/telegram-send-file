@@ -38,7 +38,9 @@ except ImportError:
     print("Error: python-telegram-bot not installed. Run: pip install python-telegram-bot>=20.0")
     sys.exit(1)
 
-IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg"}
+IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
+# .svg is intentionally excluded: Telegram cannot render SVG as a photo preview;
+# it must be sent as a document so the file is delivered intact.
 VIDEO_EXTS = {".mp4", ".avi", ".mov", ".mkv", ".webm", ".flv", ".wmv"}
 AUDIO_EXTS = {".mp3", ".wav", ".ogg", ".m4a", ".flac", ".aac", ".wma"}
 
@@ -129,7 +131,17 @@ def classify_local_file(path: str) -> str:
 
 
 def caption_from_filename(file_path: str) -> str:
-    return re.sub(r"[-_]+", " ", Path(file_path).stem).strip()
+    p = Path(file_path)
+    stem = p.stem
+    # Hidden files (e.g. ".hidden", "._data") start with a dot; strip it so the
+    # caption doesn't begin with punctuation.
+    stem = stem.lstrip(".")
+    caption = re.sub(r"[-_]+", " ", stem).strip()
+    # If the result is empty (e.g. the filename was "-_.txt" or just "-.txt"),
+    # fall back to the full filename so the caption is never silently blank.
+    if not caption:
+        caption = p.name
+    return caption
 
 
 def classify_error(e: Exception) -> str:
@@ -283,23 +295,39 @@ def main():
     logger = setup_logging(verbose=args.verbose)
 
     caption = args.caption
-    if args.caption_from_filename:
-        if args.file_path:
-            caption = caption or caption_from_filename(args.file_path)
-        elif not args.files:
-            logger.warning("--caption-from-filename ignored because no local file was provided")
 
-    # Validate mutual exclusivity of source options
-    source_count = sum(bool(x) for x in [args.file_path, args.url, args.file_id, args.files])
-    if source_count == 0:
+    # Validate mutual exclusivity of source options before anything else so
+    # early-exit errors are consistent regardless of flag order.
+    sources = {
+        "--file": args.file_path,
+        "--files": args.files,
+        "--url": args.url,
+        "--file-id": args.file_id,
+    }
+    active_sources = [name for name, val in sources.items() if val]
+    if len(active_sources) == 0:
         logger.error("No source provided. Use --file, --files, --url, or --file-id.")
         sys.exit(1)
-    if source_count > 1:
+    if len(active_sources) > 1:
         logger.error(
-            "Conflicting sources: --file, --files, --url, and --file-id are mutually exclusive. "
+            f"Conflicting sources: {' and '.join(active_sources)} are mutually exclusive. "
             "Provide only one source type."
         )
         sys.exit(1)
+
+    if args.caption_from_filename:
+        if args.url:
+            logger.warning(
+                "--caption-from-filename has no effect with --url (no local filename available); "
+                "use --caption to set an explicit caption."
+            )
+        elif args.file_id:
+            logger.warning(
+                "--caption-from-filename has no effect with --file-id; "
+                "use --caption to set an explicit caption."
+            )
+        elif args.file_path:
+            caption = caption or caption_from_filename(args.file_path)
 
     try:
         token = args.token or get_token()

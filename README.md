@@ -18,7 +18,7 @@ Features:
 
 ## Requirements
 
-- Python 3.9+
+- Python 3.11+
 - [python-telegram-bot](https://github.com/python-telegram-bot/python-telegram-bot) ≥ 20.0
 
 ```bash
