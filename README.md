@@ -117,9 +117,15 @@ python telegram_send_file.py --file report.pdf
 ### Batch send
 
 ```bash
+# All files share the same caption
 python telegram_send_file.py \
   --files file1.pdf file2.jpg file3.zip \
   --caption "Weekly delivery"
+
+# Each file gets its own caption from its filename
+python telegram_send_file.py \
+  --files report.pdf invoice.pdf photo.jpg \
+  --caption-from-filename
 ```
 
 ### Silent + caption from filename
@@ -201,19 +207,20 @@ Common errors and fixes:
 | `Bot was blocked` | User blocked the bot | Ask them to `/start` the bot |
 | `Rate limit exceeded` | Too many requests | Wait a few seconds and retry |
 | `Network error` | Connection problem | Check internet connection |
+| `File size .* exceeds Telegram'.* limit` | File too large for Telegram API | Use a smaller file (max 2 GB for documents, 10 MB for photos) |
 
 ---
 
 ## Supported File Types
 
-| Type | Extensions | Telegram Method |
-|------|-----------|-----------------|
-| Images | PNG, JPG, GIF, WEBP, BMP, SVG | `sendPhoto` |
-| Video | MP4, AVI, MOV, MKV, WEBM | `sendVideo` |
-| Audio | MP3, OGG, WAV, M4A, FLAC | `sendAudio` |
-| Documents | PDF, DOC, DOCX, TXT, XLS, ZIP | `sendDocument` |
+| Type | Extensions | Telegram Method | Max Size |
+|------|-----------|-----------------|----------|
+| Images | PNG, JPG, GIF, WEBP, BMP, SVG | `sendPhoto` | 10 MB |
+| Video | MP4, AVI, MOV, MKV, WEBM | `sendVideo` | 2 GB |
+| Audio | MP3, OGG, WAV, M4A, FLAC | `sendAudio` | 2 GB |
+| Documents | PDF, DOC, DOCX, TXT, XLS, ZIP | `sendDocument` | 2 GB |
 
-File type is automatically detected from the extension.
+File type is automatically detected from the extension. URL sends (`--url`) always use `sendDocument`.
 
 ---
 

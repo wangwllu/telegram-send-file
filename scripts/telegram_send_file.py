@@ -38,7 +38,35 @@ IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg"}
 VIDEO_EXTS = {".mp4", ".avi", ".mov", ".mkv", ".webm", ".flv", ".wmv"}
 AUDIO_EXTS = {".mp3", ".wav", ".ogg", ".m4a", ".flac", ".aac", ".wma"}
 
+# Telegram Bot API limits (in bytes)
+TELEGRAM_MAX_FILE_SIZE = 2 * 1024 * 1024 * 1024  # 2 GB
+TELEGRAM_MAX_PHOTO_SIZE = 10 * 1024 * 1024  # 10 MB
+PROGRESS_BAR_THRESHOLD = 5 * 1024 * 1024  # 5 MB — show progress for files larger than this
+
 logger: Optional[logging.Logger] = None
+
+_last_progress_line = ""
+
+
+def _make_progress_callback(file_path: str, file_size: int):
+    """Return a progress callback that prints an in-place progress bar."""
+    def callback(current: int, total: int) -> None:
+        global _last_progress_line
+        if total <= 0:
+            return
+        percent = min(100, int(current * 100 / total))
+        bar_width = 30
+        filled = int(bar_width * current / total)
+        bar = "#" * filled + "-" * (bar_width - filled)
+        size_mb = file_size / (1024 * 1024)
+        speed_mb = 0  # we'd need timing info to calculate this
+        line = f"\rUpload: [{bar}] {percent}%  ({current/(1024*1024):.1f}MB / {size_mb:.1f}MB)"
+        if current >= total:
+            line += " — done"
+        sys.stdout.write(line)
+        sys.stdout.flush()
+        _last_progress_line = line
+    return callback
 
 
 def setup_logging(verbose: bool = False) -> logging.Logger:
@@ -62,7 +90,7 @@ def get_token() -> str:
     config_paths = [
         Path.home() / ".config" / "telegram-send-file" / "config",
         Path.home() / ".telegram_bot_token",
-        Path.home() / "telegram_token",
+        Path.home() / ".telegram_token",
         Path.home() / ".openclaw" / "openclaw.json",
     ]
     for config_path in config_paths:
@@ -80,7 +108,7 @@ def get_token() -> str:
             continue
 
     raise ValueError(
-        "Telegram bot token not found. Set TELEGRAM_BOT_TOKEN, save ~/.telegram_bot_token, "
+        "Telegram bot token not found. Set TELEGRAM_BOT_TOKEN, save ~/.telegram_token or ~/.telegram_bot_token, "
         "or configure ~/.openclaw/openclaw.json with channels.telegram.botToken."
     )
 
@@ -179,19 +207,36 @@ async def send_single(
         if not os.access(file_path, os.R_OK):
             raise PermissionError(file_path)
 
+        file_size = p.stat().st_size
         file_type = classify_local_file(file_path)
+        size_limit = TELEGRAM_MAX_PHOTO_SIZE if file_type == "photo" else TELEGRAM_MAX_FILE_SIZE
+        if file_size > size_limit:
+            limit_mb = size_limit // (1024 * 1024)
+            raise ValueError(
+                f"File size ({file_size / (1024*1024):.1f} MB) exceeds Telegram's "
+                f"{limit_mb} MB limit for {file_type}."
+            )
+
         if verbose:
             logger.debug(f"Sending local {file_type}: {file_path} -> chat {chat_id}, topic {message_thread_id}")
 
+        # Attach progress callback for large files
+        progress_cb = None
+        if file_size > PROGRESS_BAR_THRESHOLD:
+            progress_cb = _make_progress_callback(file_path, file_size)
+
         with open(file_path, "rb") as fh:
             if file_type == "photo":
+                # send_photo does not support progress callback (photos are small)
                 result = await bot.send_photo(photo=fh, **upload_kwargs)
             elif file_type == "video":
-                result = await bot.send_video(video=fh, **upload_kwargs)
+                result = await bot.send_video(video=fh, progress=progress_cb, **upload_kwargs)
             elif file_type == "audio":
-                result = await bot.send_audio(audio=fh, **upload_kwargs)
+                result = await bot.send_audio(audio=fh, progress=progress_cb, **upload_kwargs)
             else:
-                result = await bot.send_document(document=fh, **upload_kwargs)
+                result = await bot.send_document(document=fh, progress=progress_cb, **upload_kwargs)
+        if file_size > PROGRESS_BAR_THRESHOLD:
+            print()  # newline after progress bar
         return result.to_dict()
 
     if file_url:
@@ -267,11 +312,22 @@ def main():
 
     caption = args.caption
     if args.caption_from_filename:
-        source = args.file_path or (args.files[0] if args.files else None)
-        if source:
-            caption = caption or caption_from_filename(source)
-        else:
+        if args.file_path:
+            caption = caption or caption_from_filename(args.file_path)
+        elif not args.files:
             logger.warning("--caption-from-filename ignored because no local file was provided")
+
+    # Validate mutual exclusivity of source options
+    source_count = sum(bool(x) for x in [args.file_path, args.url, args.file_id, args.files])
+    if source_count == 0:
+        logger.error("No source provided. Use --file, --files, --url, or --file-id.")
+        sys.exit(1)
+    if source_count > 1:
+        logger.error(
+            "Conflicting sources: --file, --files, --url, and --file-id are mutually exclusive. "
+            "Provide only one source type."
+        )
+        sys.exit(1)
 
     try:
         token = args.token or get_token()
@@ -290,7 +346,18 @@ def main():
 
     try:
         if args.files:
-            payload = [{"path": p, "caption": caption, "parse_mode": args.parse_mode} for p in args.files]
+            # Batch mode: build payload with per-file caption logic
+            if args.caption:
+                # Explicit caption applies to all files
+                payload = [{"path": p, "caption": args.caption, "parse_mode": args.parse_mode} for p in args.files]
+            elif args.caption_from_filename:
+                # Each file gets its own caption from its filename
+                payload = [
+                    {"path": p, "caption": caption_from_filename(p), "parse_mode": args.parse_mode}
+                    for p in args.files
+                ]
+            else:
+                payload = [{"path": p, "caption": None, "parse_mode": args.parse_mode} for p in args.files]
             results = asyncio.run(
                 send_batch(
                     bot=bot,
