@@ -9,7 +9,6 @@ Features:
 - 🚀 **Auto-detection** of chat/topic from OpenClaw session (no args needed in most cases)
 - 📎 **All file types** — images, video, audio, documents, archives
 - 🔄 **Batch mode** — send multiple files in one command
-- ⏳ **Progress feedback** for large files (> 5 MB)
 - 🔇 **Silent send** option
 - 📝 **Caption from filename** option
 - 🐛 **Full error handling** — clear, actionable error messages

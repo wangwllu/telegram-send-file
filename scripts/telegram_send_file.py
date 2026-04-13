@@ -26,10 +26,14 @@ try:
         NetworkError,
         RetryAfter,
         Forbidden,
-        ChatNotFound,
         InvalidToken,
         TimedOut,
     )
+    # ChatNotFound was removed in newer versions; handle gracefully
+    try:
+        from telegram.error import ChatNotFound
+    except ImportError:
+        ChatNotFound = BadRequest  # Fallback for compatibility
 except ImportError:
     print("Error: python-telegram-bot not installed. Run: pip install python-telegram-bot>=20.0")
     sys.exit(1)
@@ -41,32 +45,8 @@ AUDIO_EXTS = {".mp3", ".wav", ".ogg", ".m4a", ".flac", ".aac", ".wma"}
 # Telegram Bot API limits (in bytes)
 TELEGRAM_MAX_FILE_SIZE = 2 * 1024 * 1024 * 1024  # 2 GB
 TELEGRAM_MAX_PHOTO_SIZE = 10 * 1024 * 1024  # 10 MB
-PROGRESS_BAR_THRESHOLD = 5 * 1024 * 1024  # 5 MB — show progress for files larger than this
 
 logger: Optional[logging.Logger] = None
-
-_last_progress_line = ""
-
-
-def _make_progress_callback(file_path: str, file_size: int):
-    """Return a progress callback that prints an in-place progress bar."""
-    def callback(current: int, total: int) -> None:
-        global _last_progress_line
-        if total <= 0:
-            return
-        percent = min(100, int(current * 100 / total))
-        bar_width = 30
-        filled = int(bar_width * current / total)
-        bar = "#" * filled + "-" * (bar_width - filled)
-        size_mb = file_size / (1024 * 1024)
-        speed_mb = 0  # we'd need timing info to calculate this
-        line = f"\rUpload: [{bar}] {percent}%  ({current/(1024*1024):.1f}MB / {size_mb:.1f}MB)"
-        if current >= total:
-            line += " — done"
-        sys.stdout.write(line)
-        sys.stdout.flush()
-        _last_progress_line = line
-    return callback
 
 
 def setup_logging(verbose: bool = False) -> logging.Logger:
@@ -220,23 +200,15 @@ async def send_single(
         if verbose:
             logger.debug(f"Sending local {file_type}: {file_path} -> chat {chat_id}, topic {message_thread_id}")
 
-        # Attach progress callback for large files
-        progress_cb = None
-        if file_size > PROGRESS_BAR_THRESHOLD:
-            progress_cb = _make_progress_callback(file_path, file_size)
-
         with open(file_path, "rb") as fh:
             if file_type == "photo":
-                # send_photo does not support progress callback (photos are small)
                 result = await bot.send_photo(photo=fh, **upload_kwargs)
             elif file_type == "video":
-                result = await bot.send_video(video=fh, progress=progress_cb, **upload_kwargs)
+                result = await bot.send_video(video=fh, **upload_kwargs)
             elif file_type == "audio":
-                result = await bot.send_audio(audio=fh, progress=progress_cb, **upload_kwargs)
+                result = await bot.send_audio(audio=fh, **upload_kwargs)
             else:
-                result = await bot.send_document(document=fh, progress=progress_cb, **upload_kwargs)
-        if file_size > PROGRESS_BAR_THRESHOLD:
-            print()  # newline after progress bar
+                result = await bot.send_document(document=fh, **upload_kwargs)
         return result.to_dict()
 
     if file_url:
